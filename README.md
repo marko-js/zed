@@ -3,7 +3,9 @@
 [Marko](https://markojs.com/) language support for [Zed](https://zed.dev):
 syntax highlighting, embedded-language injections (TypeScript/CSS/SCSS),
 bracket matching, outline, and the
-[Marko language server](https://github.com/marko-js/language-server).
+[Marko language server](https://github.com/marko-js/language-server). It also
+registers [@marko/ts-plugin](https://github.com/marko-js/language-server/tree/main/packages/ts-plugin)
+so `.marko` imports resolve with types inside `.ts`/`.tsx` files.
 
 The grammar is the [@marko/tree-sitter](https://github.com/marko-js/tree-sitter)
 parser, fetched and compiled by Zed from the `[grammars.marko]` entry in

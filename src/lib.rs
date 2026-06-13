@@ -7,8 +7,15 @@ use zed_extension_api::{self as zed, LanguageServerId, Result};
 const PACKAGE_NAME: &str = "@marko/language-server";
 const SERVER_PATH: &str = "node_modules/@marko/language-server/bin.js";
 
+// @marko/ts-plugin is a TypeScript Server plugin that resolves `.marko` imports
+// with types inside `.ts`/`.tsx` files. We install it alongside the server and
+// register it with whichever TypeScript language server Zed runs (vtsls or
+// typescript-language-server).
+const TS_PLUGIN_PACKAGE_NAME: &str = "@marko/ts-plugin";
+
 struct MarkoExtension {
     did_find_server: bool,
+    did_find_ts_plugin: bool,
 }
 
 impl MarkoExtension {
@@ -57,12 +64,37 @@ impl MarkoExtension {
         self.did_find_server = true;
         Ok(SERVER_PATH.to_string())
     }
+
+    // Ensure @marko/ts-plugin is installed into the extension's working
+    // directory and return that directory, which the TypeScript server uses as
+    // the plugin probe location (it loads `<location>/node_modules/<name>`).
+    fn ts_plugin_location(&mut self) -> Result<String> {
+        let installed = zed::npm_package_installed_version(TS_PLUGIN_PACKAGE_NAME)?;
+        if !self.did_find_ts_plugin || installed.is_none() {
+            let latest = zed::npm_package_latest_version(TS_PLUGIN_PACKAGE_NAME)?;
+            if installed.as_deref() != Some(latest.as_str()) {
+                if let Err(error) = zed::npm_install_package(TS_PLUGIN_PACKAGE_NAME, &latest) {
+                    // Keep a previously installed copy if the update failed
+                    // (e.g. offline); only surface the error if nothing is there.
+                    if zed::npm_package_installed_version(TS_PLUGIN_PACKAGE_NAME)?.is_none() {
+                        return Err(error);
+                    }
+                }
+            }
+            self.did_find_ts_plugin = true;
+        }
+        Ok(std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .to_string())
+    }
 }
 
 impl zed::Extension for MarkoExtension {
     fn new() -> Self {
         Self {
             did_find_server: false,
+            did_find_ts_plugin: false,
         }
     }
 
@@ -84,6 +116,51 @@ impl zed::Extension for MarkoExtension {
             ],
             env: Default::default(),
         })
+    }
+
+    // typescript-language-server takes tsserver plugins via initialization
+    // options; teach it about Marko so `.marko` imports type-check in TS files.
+    fn language_server_additional_initialization_options(
+        &mut self,
+        _language_server_id: &LanguageServerId,
+        target_language_server_id: &LanguageServerId,
+        _worktree: &zed::Worktree,
+    ) -> Result<Option<serde_json::Value>> {
+        if target_language_server_id.as_ref() == "typescript-language-server" {
+            let location = self.ts_plugin_location()?;
+            return Ok(Some(serde_json::json!({
+                "plugins": [{
+                    "name": TS_PLUGIN_PACKAGE_NAME,
+                    "location": location,
+                }],
+            })));
+        }
+        Ok(None)
+    }
+
+    // vtsls (Zed's default TypeScript server) takes tsserver plugins via
+    // workspace configuration.
+    fn language_server_additional_workspace_configuration(
+        &mut self,
+        _language_server_id: &LanguageServerId,
+        target_language_server_id: &LanguageServerId,
+        _worktree: &zed::Worktree,
+    ) -> Result<Option<serde_json::Value>> {
+        if target_language_server_id.as_ref() == "vtsls" {
+            let location = self.ts_plugin_location()?;
+            return Ok(Some(serde_json::json!({
+                "vtsls": {
+                    "tsserver": {
+                        "globalPlugins": [{
+                            "name": TS_PLUGIN_PACKAGE_NAME,
+                            "location": location,
+                            "enableForWorkspaceTypeScriptVersions": true,
+                        }],
+                    },
+                },
+            })));
+        }
+        Ok(None)
     }
 }
 
