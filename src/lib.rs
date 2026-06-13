@@ -33,7 +33,19 @@ impl MarkoExtension {
             language_server_id,
             &zed::LanguageServerInstallationStatus::CheckingForUpdate,
         );
-        let version = zed::npm_package_latest_version(PACKAGE_NAME)?;
+        // Fetch the latest version to compare/install. If the registry is
+        // unreachable (e.g. offline) but a copy is already installed, use it
+        // instead of failing.
+        let version = match zed::npm_package_latest_version(PACKAGE_NAME) {
+            Ok(version) => version,
+            Err(error) => {
+                if server_exists {
+                    self.did_find_server = true;
+                    return Ok(SERVER_PATH.to_string());
+                }
+                return Err(error);
+            }
+        };
 
         if !server_exists
             || zed::npm_package_installed_version(PACKAGE_NAME)?.as_deref() != Some(version.as_str())
@@ -42,8 +54,7 @@ impl MarkoExtension {
                 language_server_id,
                 &zed::LanguageServerInstallationStatus::Downloading,
             );
-            let result = zed::npm_install_package(PACKAGE_NAME, &version);
-            match result {
+            match zed::npm_install_package(PACKAGE_NAME, &version) {
                 Ok(()) => {
                     if !self.server_exists() {
                         return Err(format!(
@@ -71,12 +82,27 @@ impl MarkoExtension {
     fn ts_plugin_location(&mut self) -> Result<String> {
         let installed = zed::npm_package_installed_version(TS_PLUGIN_PACKAGE_NAME)?;
         if !self.did_find_ts_plugin || installed.is_none() {
-            let latest = zed::npm_package_latest_version(TS_PLUGIN_PACKAGE_NAME)?;
-            if installed.as_deref() != Some(latest.as_str()) {
-                if let Err(error) = zed::npm_install_package(TS_PLUGIN_PACKAGE_NAME, &latest) {
-                    // Keep a previously installed copy if the update failed
-                    // (e.g. offline); only surface the error if nothing is there.
-                    if zed::npm_package_installed_version(TS_PLUGIN_PACKAGE_NAME)?.is_none() {
+            // Fetch the latest version to compare/install. If the registry is
+            // unreachable (e.g. offline) but a copy is already installed, use it
+            // rather than failing (both TS-server hooks depend on this).
+            match zed::npm_package_latest_version(TS_PLUGIN_PACKAGE_NAME) {
+                Ok(latest) => {
+                    if installed.as_deref() != Some(latest.as_str()) {
+                        if let Err(error) =
+                            zed::npm_install_package(TS_PLUGIN_PACKAGE_NAME, &latest)
+                        {
+                            // Keep a previously installed copy if the update
+                            // failed; only surface the error if nothing is there.
+                            if zed::npm_package_installed_version(TS_PLUGIN_PACKAGE_NAME)?
+                                .is_none()
+                            {
+                                return Err(error);
+                            }
+                        }
+                    }
+                }
+                Err(error) => {
+                    if installed.is_none() {
                         return Err(error);
                     }
                 }
