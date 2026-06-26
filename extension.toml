@@ -10,11 +10,14 @@ repository = "https://github.com/marko-js/zed"
 name = "Marko Language Server"
 languages = ["Marko"]
 
-# Zed fetches and compiles the grammar from the tree-sitter-marko repo at
-# `rev`. This is @marko/tree-sitter v0.1.0. For local development you can load
-# the grammar from a checkout with a file:// URL, e.g.:
+# Zed fetches and compiles the grammar from the marko-js/tree-sitter repo at
+# `rev`, which must be a commit SHA. This pin is kept current with the latest
+# published @marko/tree-sitter release by
+# .github/workflows/update-tree-sitter.yml; the trailing comment on `rev`
+# records the version that commit corresponds to. For local development you can
+# load the grammar from a checkout with a file:// URL, e.g.:
 #   repository = "file:///Users/dpiercey/dev/marko-js/tree-sitter"
 #   rev = "<a committed local sha>"
 [grammars.marko]
 repository = "https://github.com/marko-js/tree-sitter"
-rev = "1389646aa93cbead3cd6dcaff0de86c9c4419ad4"
+rev = "7fb20382b9b0c97c8bdbceee0e0641bea11dd00f" # @marko/tree-sitter v0.2.0

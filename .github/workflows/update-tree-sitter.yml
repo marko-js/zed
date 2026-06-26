@@ -1,0 +1,116 @@
+name: Update tree-sitter grammar
+
+# Keeps the bundled Marko grammar in sync with @marko/tree-sitter.
+#
+# When a new version of marko-js/tree-sitter is published this pins
+# `[grammars.marko].rev` in extension.toml to that release's commit and
+# refreshes the highlight/injection queries Zed copies from the grammar's
+# queries/, then opens a PR with the result. (brackets.scm and outline.scm are
+# Zed-specific and are intentionally left untouched.)
+#
+# Triggers:
+#   - repository_dispatch (tree-sitter-released): fired by the tree-sitter
+#     release workflow right after it publishes, for near-instant updates. Uses
+#     the optional client_payload { tag, sha } directly when present.
+#   - schedule: daily safety net in case a dispatch is ever missed.
+#   - workflow_dispatch: manual run; optionally pin a specific ref.
+
+on:
+  repository_dispatch:
+    types: [tree-sitter-released]
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "tree-sitter ref (tag/branch/sha) to pin; defaults to the latest release"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-tree-sitter
+  cancel-in-progress: true
+
+env:
+  GRAMMAR_REPO: marko-js/tree-sitter
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve target grammar commit
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISPATCH_TAG: ${{ github.event.client_payload.tag }}
+          DISPATCH_SHA: ${{ github.event.client_payload.sha }}
+          INPUT_REF: ${{ github.event.inputs.ref }}
+        run: |
+          set -euo pipefail
+          # Choose which ref of the grammar repo to pin.
+          if [ -n "${INPUT_REF}" ]; then
+            tag="${INPUT_REF}"; ref="${INPUT_REF}"
+          elif [ -n "${DISPATCH_TAG}" ]; then
+            tag="${DISPATCH_TAG}"; ref="${DISPATCH_TAG}"
+          elif [ -n "${DISPATCH_SHA}" ]; then
+            tag="${DISPATCH_SHA}"; ref="${DISPATCH_SHA}"
+          else
+            tag="$(gh api "repos/${GRAMMAR_REPO}/releases/latest" --jq .tag_name)"
+            ref="${tag}"
+          fi
+          # Zed requires `rev` to be a commit SHA, so resolve whatever ref we
+          # picked down to its commit (handles tags, annotated tags and SHAs).
+          sha="$(gh api "repos/${GRAMMAR_REPO}/commits/${ref}" --jq .sha)"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "Resolved ${GRAMMAR_REPO}@${tag} -> ${sha}"
+
+      - name: Apply rev and refresh queries
+        id: apply
+        env:
+          SHA: ${{ steps.resolve.outputs.sha }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Rewrite the whole rev line: new SHA + a version annotation comment.
+          perl -0pi -e 's{^rev = "[0-9a-f]+".*$}{rev = "$ENV{SHA}" # \@marko/tree-sitter $ENV{TAG}}m' extension.toml
+          # Refresh the queries Zed copies verbatim from the grammar repo.
+          for q in highlights injections; do
+            curl -fsSL "https://raw.githubusercontent.com/${GRAMMAR_REPO}/${SHA}/queries/${q}.scm" \
+              -o "languages/marko/${q}.scm"
+          done
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Already up to date with ${TAG} (${SHA})."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git --no-pager diff --stat
+          fi
+
+      - name: Open pull request
+        if: steps.apply.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: main
+          branch: chore/update-tree-sitter-grammar
+          delete-branch: true
+          commit-message: "chore: update @marko/tree-sitter to ${{ steps.resolve.outputs.tag }}"
+          title: "chore: update @marko/tree-sitter to ${{ steps.resolve.outputs.tag }}"
+          body: |
+            Updates the bundled Marko grammar to **${{ steps.resolve.outputs.tag }}** of
+            [@marko/tree-sitter](https://github.com/marko-js/tree-sitter).
+
+            - `extension.toml` -> `[grammars.marko].rev` = `${{ steps.resolve.outputs.sha }}`
+            - refreshed `languages/marko/highlights.scm` and `languages/marko/injections.scm`
+              from the grammar repo's `queries/`
+
+            Opened automatically by the **Update tree-sitter grammar** workflow.
+            Merge to ship the new grammar; publishing the extension to the Zed
+            registry remains a separate step.
