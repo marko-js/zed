@@ -1,7 +1,7 @@
 id = "marko"
 name = "Marko"
 description = "Marko language support: syntax highlighting, embedded languages, and the Marko language server."
-version = "0.1.0"
+version = "0.2.0"
 schema_version = 1
 authors = ["Dylan Piercey <pierceydylan@gmail.com>"]
 repository = "https://github.com/marko-js/zed"
@@ -10,11 +10,11 @@ repository = "https://github.com/marko-js/zed"
 name = "Marko Language Server"
 languages = ["Marko"]
 
-# Zed fetches and compiles the grammar from the tree-sitter-marko repo at
-# `rev`. This is @marko/tree-sitter v0.2.0. For local development you can load
+# Zed fetches and compiles the grammar from the marko-js/tree-sitter repo at
+# `rev`. This is @marko/tree-sitter v0.4.0. For local development you can load
 # the grammar from a checkout with a file:// URL, e.g.:
 #   repository = "file:///Users/dpiercey/dev/marko-js/tree-sitter"
 #   rev = "<a committed local sha>"
 [grammars.marko]
 repository = "https://github.com/marko-js/tree-sitter"
-rev = "7fb20382b9b0c97c8bdbceee0e0641bea11dd00f"
+rev = "1312e49b43019e97135c5fc8b32875c6d5b9d0a3"
