@@ -27,7 +27,10 @@ languages/marko/
 
 The language server (`@marko/language-server`) is installed from npm on demand
 into the extension's working directory and run with Zed's Node; it bundles its
-own TypeScript, so no project setup is required. For embedded highlighting,
+own TypeScript, so no project setup is required. The extension pins the major
+version of the server and of `@marko/ts-plugin` (3.x) and picks up the newest
+release within it once a session, since a new major may need the extension to
+change. For embedded highlighting,
 install Zed's TypeScript/CSS/SCSS languages.
 
 ## Local development
